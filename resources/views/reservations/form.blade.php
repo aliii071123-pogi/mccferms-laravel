@@ -1,0 +1,25 @@
+@extends('layouts.app')
+@section('title', $reservation->exists ? 'Edit request' : 'New request')
+@section('content')
+<div class="page-head"><div><div class="eyebrow">Reservation request</div><h1>{{ $reservation->exists ? 'Update your request' : 'Book an MCC resource' }}</h1><p>Campus use is available daily between 8:00 AM and 8:00 PM.</p></div><a class="button neutral" href="{{ route('reservations.index') }}">Back to requests</a></div>
+<section class="surface" style="max-width:920px">
+    @if($errors->any())<div class="alert errors" role="alert">Some details need attention. Correct the highlighted fields below.</div>@endif
+    <form method="post" action="{{ $reservation->exists ? route('reservations.update', $reservation) : route('reservations.store') }}">
+        @csrf @if($reservation->exists) @method('PUT') @endif
+        <div class="form-grid">
+            <div class="field full"><label for="facility_id">Facility <span class="muted">(optional if borrowing equipment only)</span></label><select id="facility_id" name="facility_id" class="{{ $errors->has('facility_id') ? 'invalid' : '' }}"><option value="">No facility</option>@foreach($facilities as $facility)<option value="{{ $facility->id }}" @selected(old('facility_id', $reservation->facility_id) == $facility->id)>{{ $facility->name }} · {{ $facility->location }} · {{ $facility->capacity }} pax</option>@endforeach</select><div class="error">@error('facility_id'){{ $message }}@enderror</div></div>
+            <div class="field full"><label>Equipment <span class="muted">(optional if reserving a facility only)</span></label>
+                <div class="equipment-options">@foreach($equipment as $item)<div class="equipment-choice"><label for="equipment_{{ $item->id }}">{{ $item->name }}<br><span class="muted">{{ $item->quantity_available }} in inventory</span></label><input id="equipment_{{ $item->id }}" name="equipment[{{ $item->id }}]" type="number" min="0" max="{{ $item->quantity_available }}" value="{{ old('equipment.'.$item->id, $reservation->equipment->firstWhere('id', $item->id)?->pivot->quantity ?? '') }}" class="{{ $errors->has('equipment.'.$item->id) ? 'invalid' : '' }}" placeholder="Qty"><div class="error" style="grid-column:1/-1">@error('equipment.'.$item->id){{ $message }}@enderror</div></div>@endforeach</div>
+                @if($equipment->isEmpty())<div class="muted">No equipment is currently listed.</div>@endif
+            </div>
+            <div class="field"><label for="date">Date</label><input id="date" name="date" type="date" min="{{ now()->toDateString() }}" value="{{ old('date', $reservation->starts_at?->toDateString()) }}" class="{{ $errors->has('date') ? 'invalid' : '' }}" required><div class="error">@error('date'){{ $message }}@enderror</div></div>
+            <div class="field"><label for="pax">Estimated attendees</label><input id="pax" name="pax" type="number" min="1" value="{{ old('pax', $reservation->pax) }}" class="{{ $errors->has('pax') ? 'invalid' : '' }}" required><div class="error">@error('pax'){{ $message }}@enderror</div></div>
+            <div class="field"><label for="start_time">Start time</label><input id="start_time" name="start_time" type="time" min="08:00" max="20:00" value="{{ old('start_time', $reservation->starts_at?->format('H:i')) }}" class="{{ $errors->has('start_time') ? 'invalid' : '' }}" required><div class="error">@error('start_time'){{ $message }}@enderror</div></div>
+            <div class="field"><label for="end_time">End time</label><input id="end_time" name="end_time" type="time" min="08:00" max="20:00" value="{{ old('end_time', $reservation->ends_at?->format('H:i')) }}" class="{{ $errors->has('end_time') ? 'invalid' : '' }}" required><div class="error">@error('end_time'){{ $message }}@enderror</div></div>
+            <div class="field full"><label for="purpose">Purpose</label><input id="purpose" name="purpose" maxlength="160" value="{{ old('purpose', $reservation->purpose) }}" class="{{ $errors->has('purpose') ? 'invalid' : '' }}" placeholder="e.g. Leadership seminar" required><div class="error">@error('purpose'){{ $message }}@enderror</div></div>
+            <div class="field full"><label for="description">Activity brief description</label><textarea id="description" name="description" maxlength="5000" class="{{ $errors->has('description') ? 'invalid' : '' }}" placeholder="Share the activity details and setup needs." required>{{ old('description', $reservation->description) }}</textarea><div class="error">@error('description'){{ $message }}@enderror</div></div>
+        </div>
+        <div class="actions" style="margin-top:20px"><button type="submit">{{ $reservation->exists ? 'Save changes' : 'Send request' }}</button><a class="button neutral" href="{{ route('reservations.index') }}">Cancel</a></div>
+    </form>
+</section>
+@endsection
