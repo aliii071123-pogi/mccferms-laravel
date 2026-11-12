@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 class Reservation extends Model
 {
@@ -41,5 +43,21 @@ class Reservation extends Model
     public function equipment(): BelongsToMany
     {
         return $this->belongsToMany(Equipment::class, 'reservation_equipment')->withPivot('quantity');
+    }
+
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(ReservationSchedule::class)->orderBy('starts_at');
+    }
+
+    public function scheduleBlocks(): Collection
+    {
+        $schedules = $this->relationLoaded('schedules')
+            ? $this->getRelation('schedules')
+            : $this->schedules()->get();
+
+        return $schedules->isNotEmpty()
+            ? $schedules
+            : collect([(object) ['starts_at' => $this->starts_at, 'ends_at' => $this->ends_at]]);
     }
 }

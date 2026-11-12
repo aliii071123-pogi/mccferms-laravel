@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\MobileAuthController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EquipmentController;
 use App\Http\Controllers\FacilityController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\ReservationController;
 use Illuminate\Support\Facades\Route;
 
@@ -12,13 +14,15 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1')
         ->name('api.auth.exchange');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::get('/me', [MobileAuthController::class, 'me'])->name('api.me');
         Route::get('/dashboard', [DashboardController::class, 'api'])->name('api.dashboard');
         Route::put('/profile', [MobileAuthController::class, 'updateProfile'])->name('api.profile.update');
         Route::delete('/auth/session', [MobileAuthController::class, 'logout'])->name('api.auth.logout');
         Route::get('/facilities', [FacilityController::class, 'apiIndex'])->name('api.facilities.index');
         Route::get('/equipment', [EquipmentController::class, 'apiIndex'])->name('api.equipment.index');
+        Route::get('/organizations', [OrganizationController::class, 'apiIndex'])->name('api.organizations.index');
+        Route::get('/calendar', [CalendarController::class, 'apiIndex'])->name('api.calendar.index');
 
         Route::middleware('student.profile')->group(function () {
             Route::get('/reservations', [ReservationController::class, 'index'])->name('api.reservations.index');

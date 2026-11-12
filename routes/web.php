@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EquipmentController;
 use App\Http\Controllers\FacilityController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReservationController;
 use Illuminate\Support\Facades\Auth;
@@ -15,7 +17,11 @@ Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::get('/auth/microsoft', [AuthController::class, 'redirectToMicrosoft'])->name('microsoft.redirect');
 Route::get('/auth/microsoft/callback', [AuthController::class, 'microsoftCallback'])->name('microsoft.callback');
 
-Route::middleware(['auth', 'student.profile'])->group(function () {
+Route::middleware(['auth', 'account.active'])->group(function () {
+    Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
+});
+
+Route::middleware(['auth', 'account.active', 'student.profile'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/profile/complete', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -50,5 +56,8 @@ Route::middleware(['auth', 'student.profile'])->group(function () {
         Route::post('/accounts', [AccountController::class, 'store'])->name('accounts.store');
         Route::put('/accounts/{user}', [AccountController::class, 'update'])->name('accounts.update');
         Route::delete('/accounts/{user}', [AccountController::class, 'destroy'])->name('accounts.destroy');
+        Route::patch('/accounts/{user}/suspension', [AccountController::class, 'setSuspended'])->name('accounts.suspension');
+        Route::post('/organizations', [OrganizationController::class, 'store'])->name('organizations.store');
+        Route::delete('/organizations/{organization}', [OrganizationController::class, 'destroy'])->name('organizations.destroy');
     });
 });

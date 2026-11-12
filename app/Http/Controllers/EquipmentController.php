@@ -10,15 +10,26 @@ class EquipmentController extends Controller
 {
     public function index(Request $request)
     {
-        $equipment = Equipment::with(['reservations' => fn ($query) => $query->whereIn('status', ['pending', 'approved'])->where('ends_at', '>=', now())->orderBy('starts_at')])->orderBy('name')->get();
+        $equipment = Equipment::with(['reservations' => fn ($query) => $query
+            ->with('schedules')
+            ->whereIn('status', ['pending', 'approved'])
+            ->where('ends_at', '>=', now())
+            ->orderBy('starts_at')])->orderBy('name')->get();
+        $categories = Equipment::query()
+            ->whereNotNull('category')
+            ->where('category', '<>', '')
+            ->distinct()
+            ->orderBy('category')
+            ->pluck('category');
         $editing = $request->filled('edit') ? Equipment::findOrFail($request->query('edit')) : new Equipment;
 
-        return view('equipment.index', compact('equipment', 'editing'));
+        return view('equipment.index', compact('equipment', 'categories', 'editing'));
     }
 
     public function apiIndex()
     {
         $equipment = Equipment::with(['reservations' => fn ($query) => $query
+            ->with('schedules')
             ->whereIn('status', ['pending', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
@@ -28,14 +39,15 @@ class EquipmentController extends Controller
             'name' => $item->name,
             'category' => $item->category,
             'description' => $item->description,
+            'staff_in_charge' => $item->staff_in_charge,
             'quantity_available' => $item->quantity_available,
             'is_available' => $item->is_available,
-            'schedule' => $item->reservations->map(fn ($reservation) => [
-                'starts_at' => $reservation->starts_at->toISOString(),
-                'ends_at' => $reservation->ends_at->toISOString(),
+            'schedule' => $item->reservations->flatMap(fn ($reservation) => $reservation->scheduleBlocks()->map(fn ($schedule) => [
+                'starts_at' => $schedule->starts_at->toISOString(),
+                'ends_at' => $schedule->ends_at->toISOString(),
                 'quantity' => $reservation->pivot->quantity,
                 'status' => $reservation->status,
-            ]),
+            ]))->values(),
         ])]);
     }
 
@@ -77,8 +89,9 @@ class EquipmentController extends Controller
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:120', Rule::unique('equipment')->ignore($equipment)],
-            'category' => ['required', 'string', 'max:80'],
+            'category' => ['nullable', 'string', 'max:80'],
             'description' => ['nullable', 'string', 'max:2000'],
+            'staff_in_charge' => ['required', 'string', 'max:160'],
             'quantity_available' => ['required', 'integer', 'between:0,100000'],
             'is_available' => ['sometimes', 'boolean'],
         ]) + ['is_available' => $request->boolean('is_available')];

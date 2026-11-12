@@ -21,7 +21,7 @@ Content-Type: application/json
 
 The response contains `token`, `expires_at`, and `user`. Store the bearer token in the platform's secure storage. Codes expire after three minutes and cannot be reused. Tokens expire after `FERMS_API_TOKEN_DAYS` (30 days by default).
 
-If the student's organization profile is incomplete, reservation endpoints return `403` with `profile_required: true`. Complete it with `PUT /api/v1/profile` and the required `organization` and `position` strings.
+If the student's organization profile is incomplete, reservation endpoints return `403` with `profile_required: true`. Load managed organization choices from `GET /api/v1/organizations`, then complete the profile with `PUT /api/v1/profile` and the selected `organization` name and `position` strings. The profile update rejects organization names that are not in the managed list.
 
 ## API Endpoints
 
@@ -36,6 +36,8 @@ Send `Accept: application/json` and `Authorization: Bearer <token>` on authentic
 | PUT | `/api/v1/profile` | Update a student's organization and position |
 | GET | `/api/v1/facilities` | Facilities and upcoming schedule blocks |
 | GET | `/api/v1/equipment` | Equipment inventory and upcoming borrowing blocks |
+| GET | `/api/v1/organizations` | Organization and institute choices for student profiles |
+| GET | `/api/v1/calendar?month=YYYY-MM` | Privacy-safe facility schedule for the selected month |
 | GET | `/api/v1/reservations` | Current user's requests, or all requests for staff/admin |
 | POST | `/api/v1/reservations` | Create a request |
 | GET | `/api/v1/reservations/{id}` | Request details |
@@ -46,7 +48,11 @@ Send `Accept: application/json` and `Authorization: Bearer <token>` on authentic
 | POST/PUT/DELETE | `/api/v1/facilities[/{id}]` | Staff+ facility management |
 | POST/PUT/DELETE | `/api/v1/equipment[/{id}]` | Staff+ equipment management |
 
-Reservation creation fields are `facility_id` (nullable when borrowing equipment only), `date` (`YYYY-MM-DD`), `start_time` and `end_time` (`HH:mm`, Manila local time), `pax`, `purpose`, `description`, and `equipment` (an object mapping equipment IDs to requested quantities). At least one facility or positive equipment quantity is required. Validation failures return `422` with field errors.
+Facility and equipment create/update requests require `staff_in_charge` (staff member name). Equipment `category` is optional.
+
+Reservation creation fields are `facility_id` (nullable when borrowing equipment only), `duration_days` (1–7), `days` (one entry per event day, each with a `date` (`YYYY-MM-DD`), `start_time` and `end_time` (`HH:mm`, Manila local time)), `pax`, `purpose`, `description`, and `equipment` (an object mapping equipment IDs to requested quantities). Each event day has its own date and time range. At least one facility or positive equipment quantity is required. Facility/time conflicts return a validation error asking the requester to coordinate with facility staff; no requester or activity details are disclosed.
+
+Use `GET /api/v1/calendar?month=YYYY-MM` to retrieve shared facility bookings for a month. The response includes only facility name, start/end time, and pending/booked status.
 
 Use `GET /api/v1/reservations?view=history` for completed/closed history; the default lists upcoming and pending requests. Admin review payload: `{"status":"approved"}` or `{"status":"rejected"}`.
 

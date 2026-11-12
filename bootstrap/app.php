@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\EnsureStudentProfile;
 use Illuminate\Foundation\Application;
@@ -15,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
+            'account.active' => EnsureAccountIsActive::class,
             'role' => EnsureRole::class,
             'student.profile' => EnsureStudentProfile::class,
         ]);

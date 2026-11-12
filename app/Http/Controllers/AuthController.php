@@ -63,6 +63,10 @@ class AuthController extends Controller
             $user->update(['role' => 'super_admin']);
         }
 
+        if ($user->is_suspended) {
+            return to_route('login')->withErrors(['account' => 'This account has been suspended.']);
+        }
+
         Auth::login($user, true);
         request()->session()->regenerate();
 

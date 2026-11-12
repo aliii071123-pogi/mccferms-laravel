@@ -12,7 +12,7 @@ class DashboardController extends Controller
     public function __invoke(Request $request)
     {
         $user = $request->user();
-        $reservations = Reservation::with(['facility', 'equipment', 'user']);
+        $reservations = Reservation::with(['facility', 'equipment', 'user', 'schedules']);
         if ($user->role === 'student') {
             $reservations->where('user_id', $user->id);
         }

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Equipment;
 use App\Models\Facility;
 use App\Models\MobileAuthCode;
+use App\Models\Organization;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,9 +29,12 @@ class ReservationWorkflowTest extends TestCase
     {
         return array_replace([
             'facility_id' => $facility->id,
-            'date' => now()->addDays(2)->toDateString(),
-            'start_time' => '13:00',
-            'end_time' => '15:00',
+            'duration_days' => 1,
+            'days' => [[
+                'date' => now()->addDays(2)->toDateString(),
+                'start_time' => '13:00',
+                'end_time' => '15:00',
+            ]],
             'pax' => 24,
             'purpose' => 'Student leadership workshop',
             'description' => 'A planning session for the student organization.',
@@ -55,7 +59,12 @@ class ReservationWorkflowTest extends TestCase
         $student = $this->student();
         $facility = Facility::create(['name' => 'Innovation Hall', 'location' => 'North Wing', 'capacity' => 40]);
         $equipment = Equipment::create(['name' => 'Projector', 'category' => 'AV', 'quantity_available' => 4]);
-        $this->actingAs($student)->get('/dashboard')->assertOk()->assertSee('Innovation Hall');
+        $this->actingAs($student)->get('/dashboard')
+            ->assertOk()
+            ->assertSee('Innovation Hall')
+            ->assertSee('id="theme-toggle"', false)
+            ->assertSee('Switch to dark mode')
+            ->assertSee("localStorage.setItem('ferms-theme', theme)", false);
 
         $response = $this->actingAs($student)->post('/reservations', $this->requestData($facility, $equipment));
         $reservation = Reservation::sole();
@@ -65,7 +74,13 @@ class ReservationWorkflowTest extends TestCase
         $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'pending', 'user_id' => $student->id]);
         $this->assertSame(2, $reservation->equipment()->first()->pivot->quantity);
         $this->assertSame($reservation->ends_at->copy()->addDays(2)->timestamp, $reservation->return_due_at->timestamp);
-        $this->actingAs($student)->get(route('reservations.show', $reservation))->assertOk()->assertSee('Printed letters still need to be signed');
+        $this->actingAs($student)->withSession(['request_submitted' => true])
+            ->get(route('reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('request-sent-modal')
+            ->assertSee('Printed letters still need to be signed')
+            ->assertSee('Done')
+            ->assertDontSee('Review request');
         $this->actingAs($student)->get('/reservations')->assertOk()->assertSee('Student leadership workshop');
         $this->actingAs($student)->get('/facilities')->assertOk()->assertSee('Innovation Hall');
         $this->actingAs($student)->get('/equipment')->assertOk()->assertSee('Projector');
@@ -78,15 +93,24 @@ class ReservationWorkflowTest extends TestCase
         $equipment = Equipment::create(['name' => 'Speaker', 'category' => 'AV', 'quantity_available' => 6]);
 
         $this->actingAs($student)->from('/reservations/create')->post('/reservations', $this->requestData($facility, $equipment, [
-            'start_time' => '12:00',
-            'end_time' => '08:00',
-        ]))->assertSessionHasErrors(['end_time']);
+            'days' => [[
+                'date' => now()->addDays(2)->toDateString(),
+                'start_time' => '12:00',
+                'end_time' => '08:00',
+            ]],
+        ]))->assertSessionHasErrors(['days.0.end_time']);
 
         $valid = $this->requestData($facility, $equipment);
         $this->actingAs($student)->post('/reservations', $valid)->assertSessionHasNoErrors();
-        $this->actingAs($student)->from('/reservations/create')->post('/reservations', $valid)->assertSessionHasErrors(['facility_id']);
+        $this->actingAs($student)->from('/reservations/create')->post('/reservations', $valid)->assertSessionHasErrors(['facility_conflict']);
 
-        $this->actingAs($student)->from('/reservations/create')->post('/reservations', $this->requestData($facility, $equipment, ['start_time' => '07:00']))->assertSessionHasErrors(['start_time']);
+        $this->actingAs($student)->from('/reservations/create')->post('/reservations', $this->requestData($facility, $equipment, [
+            'days' => [[
+                'date' => now()->addDays(2)->toDateString(),
+                'start_time' => '07:00',
+                'end_time' => '08:00',
+            ]],
+        ]))->assertSessionHasErrors(['days.0.start_time']);
 
         $this->actingAs($student)->from('/reservations/create')->post('/reservations', $this->requestData($facility, $equipment, [
             'facility_id' => null,
@@ -101,9 +125,12 @@ class ReservationWorkflowTest extends TestCase
 
         $this->actingAs($student)->post('/reservations', [
             'facility_id' => null,
-            'date' => now()->addDays(2)->toDateString(),
-            'start_time' => '10:00',
-            'end_time' => '11:00',
+            'duration_days' => 1,
+            'days' => [[
+                'date' => now()->addDays(2)->toDateString(),
+                'start_time' => '10:00',
+                'end_time' => '11:00',
+            ]],
             'pax' => 18,
             'purpose' => 'Outdoor orientation',
             'description' => 'Borrow a microphone for the welcome program.',
@@ -114,6 +141,204 @@ class ReservationWorkflowTest extends TestCase
         $this->assertNull($reservation->facility_id);
         $this->assertNotNull($reservation->return_due_at);
         $this->assertSame(1, $reservation->equipment()->first()->pivot->quantity);
+    }
+
+    public function test_equipment_catalog_has_search_and_category_filters(): void
+    {
+        $student = $this->student();
+        Equipment::create(['name' => 'Projector', 'category' => 'Audio Visual', 'quantity_available' => 2]);
+        Equipment::create(['name' => 'Wireless Microphone', 'category' => 'Audio', 'quantity_available' => 4]);
+        Equipment::create(['name' => 'Folding Chairs', 'category' => null, 'quantity_available' => 30]);
+
+        $this->actingAs($student)->get('/equipment')
+            ->assertOk()
+            ->assertSee('id="equipment-search"', false)
+            ->assertSee('id="equipment-category"', false)
+            ->assertSee('Audio Visual')
+            ->assertSee('Wireless Microphone')
+            ->assertSee('Uncategorized')
+            ->assertSee('data-category="Audio Visual"', false)
+            ->assertSee('id="equipment-no-matches"', false)
+            ->assertSee('aria-live="polite"', false);
+    }
+
+    public function test_equipment_availability_is_checked_independently_for_each_event_day(): void
+    {
+        $equipment = Equipment::create(['name' => 'Portable Speaker', 'category' => 'Audio', 'quantity_available' => 2]);
+        $firstDate = now()->addDays(2)->toDateString();
+        $secondDate = now()->addDays(3)->toDateString();
+        foreach ([$firstDate, $secondDate] as $index => $date) {
+            $this->actingAs($this->student())->post('/reservations', [
+                'facility_id' => null,
+                'duration_days' => 1,
+                'days' => [['date' => $date, 'start_time' => '10:00', 'end_time' => '11:00']],
+                'pax' => 10,
+                'purpose' => 'Equipment hold '.$index,
+                'description' => 'One unit for this day.',
+                'equipment' => [$equipment->id => 1],
+            ])->assertRedirect();
+        }
+
+        $this->actingAs($this->student())->post('/reservations', [
+            'facility_id' => null,
+            'duration_days' => 2,
+            'days' => [
+                ['date' => $firstDate, 'start_time' => '10:00', 'end_time' => '11:00'],
+                ['date' => $secondDate, 'start_time' => '10:00', 'end_time' => '11:00'],
+            ],
+            'pax' => 10,
+            'purpose' => 'Two-day equipment hold',
+            'description' => 'One unit on each day.',
+            'equipment' => [$equipment->id => 1],
+        ])->assertRedirect();
+
+        $this->assertSame(3, Reservation::count());
+    }
+
+    public function test_multiday_slots_drive_conflicts_and_privacy_safe_calendar(): void
+    {
+        $requester = $this->student(['email' => 'event.owner@mcc.edu.ph']);
+        $visitor = $this->student(['email' => 'calendar.viewer@mcc.edu.ph']);
+        $facility = Facility::create(['name' => 'Innovation Hall', 'location' => 'North Wing', 'capacity' => 40]);
+        $equipment = Equipment::create(['name' => 'Projector', 'category' => 'AV', 'quantity_available' => 2]);
+        $firstDate = now()->addDays(2);
+        $lastDate = now()->addDays(4);
+        $multiDayRequest = $this->requestData($facility, $equipment, [
+            'duration_days' => 2,
+            'days' => [
+                ['date' => $firstDate->toDateString(), 'start_time' => '09:00', 'end_time' => '11:00'],
+                ['date' => $lastDate->toDateString(), 'start_time' => '14:00', 'end_time' => '16:00'],
+            ],
+        ]);
+
+        $this->actingAs($requester)->post('/reservations', $multiDayRequest)->assertRedirect();
+        $reservation = Reservation::sole();
+        $this->assertCount(2, $reservation->schedules);
+
+        $gapRequest = $this->requestData($facility, $equipment, [
+            'days' => [[
+                'date' => $firstDate->copy()->addDay()->toDateString(),
+                'start_time' => '09:00',
+                'end_time' => '11:00',
+            ]],
+        ]);
+        $this->actingAs($visitor)->post('/reservations', $gapRequest)->assertRedirect();
+        $this->assertSame(2, Reservation::count());
+
+        $conflictingRequest = $this->requestData($facility, $equipment, [
+            'days' => [[
+                'date' => $lastDate->toDateString(),
+                'start_time' => '15:00',
+                'end_time' => '17:00',
+            ]],
+        ]);
+        $this->actingAs($visitor)
+            ->from('/reservations/create')
+            ->followingRedirects()
+            ->post('/reservations', $conflictingRequest)
+            ->assertOk()
+            ->assertSee('facility-conflict-modal')
+            ->assertSee('Please communicate with the facility staff');
+        $this->assertSame(2, Reservation::count());
+
+        $month = $firstDate->format('Y-m');
+        $this->actingAs($visitor)->get(route('calendar.index', ['month' => $month]))
+            ->assertOk()
+            ->assertSee('Innovation Hall')
+            ->assertSee('Pending')
+            ->assertDontSee('Student leadership workshop')
+            ->assertDontSee('event.owner@mcc.edu.ph');
+
+        $token = $visitor->createToken('calendar-view')->plainTextToken;
+        $calendarData = $this->withToken($token)->getJson('/api/v1/calendar?month='.$month)
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(3, $calendarData);
+        foreach ($calendarData as $event) {
+            $this->assertSame(['facility', 'starts_at', 'ends_at', 'status'], array_keys($event));
+            $this->assertSame('Innovation Hall', $event['facility']);
+        }
+
+        $equipmentConflict = $this->requestData($facility, $equipment, [
+            'facility_id' => null,
+            'days' => [[
+                'date' => $lastDate->toDateString(),
+                'start_time' => '15:00',
+                'end_time' => '17:00',
+            ]],
+        ]);
+        $this->actingAs($visitor)->from('/reservations/create')->post('/reservations', $equipmentConflict)
+            ->assertSessionHasErrors(['equipment.'.$equipment->id]);
+    }
+
+    public function test_reservation_rejects_more_than_seven_event_days_or_mismatched_day_count(): void
+    {
+        $student = $this->student();
+        $equipment = Equipment::create(['name' => 'Microphone', 'category' => 'Audio', 'quantity_available' => 3]);
+        $day = ['date' => now()->addDays(2)->toDateString(), 'start_time' => '09:00', 'end_time' => '10:00'];
+
+        $this->actingAs($student)->from('/reservations/create')->post('/reservations', [
+            'duration_days' => 8,
+            'days' => array_fill(0, 8, $day),
+            'equipment' => [$equipment->id => 1],
+            'pax' => 10,
+            'purpose' => 'Week-long activity',
+            'description' => 'An activity exceeding the supported duration.',
+        ])->assertSessionHasErrors(['duration_days', 'days']);
+
+        $this->actingAs($student)->from('/reservations/create')->post('/reservations', [
+            'duration_days' => 2,
+            'days' => [$day],
+            'equipment' => [$equipment->id => 1],
+            'pax' => 10,
+            'purpose' => 'Missing event day',
+            'description' => 'The number of dates must match the number of days.',
+        ])->assertSessionHasErrors(['duration_days']);
+    }
+
+    public function test_student_with_incomplete_profile_can_still_view_facility_calendar(): void
+    {
+        $student = $this->student(['organization' => null, 'position' => null]);
+
+        $this->actingAs($student)->get(route('calendar.index'))
+            ->assertOk()
+            ->assertSee('Facility calendar');
+    }
+
+    public function test_student_can_enter_an_unlisted_organization_without_adding_a_choice(): void
+    {
+        $student = $this->student(['organization' => null, 'position' => null]);
+        Organization::create(['name' => 'Robotics Club']);
+
+        $this->actingAs($student)->get(route('profile.edit'))
+            ->assertOk()
+            ->assertSee('Other (not listed)')
+            ->assertSee('other_organization');
+        $this->actingAs($student)->put(route('profile.update'), [
+            'organization' => '__other__',
+            'other_organization' => 'Campus Arts Council',
+            'position' => 'President',
+        ])->assertRedirect(route('dashboard'));
+
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'organization' => 'Campus Arts Council']);
+        $this->assertSame(1, Organization::count());
+        $this->actingAs($student->fresh())->get(route('profile.edit'))
+            ->assertOk()
+            ->assertSee('value="Campus Arts Council"', false)
+            ->assertSee('value="__other__" selected', false);
+
+        $superAdmin = $this->student(['role' => 'super_admin']);
+        $this->actingAs($superAdmin)->get(route('accounts.index'))
+            ->assertOk()
+            ->assertSee('Campus Arts Council (custom)');
+        $this->actingAs($superAdmin)->put(route('accounts.update', $student), [
+            'name' => $student->name,
+            'email' => $student->email,
+            'role' => 'student',
+            'organization' => 'Campus Arts Council',
+            'position' => 'President',
+        ])->assertRedirect(route('accounts.index'));
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'organization' => 'Campus Arts Council']);
     }
 
     public function test_students_only_manage_their_requests_and_admins_decide_them(): void
@@ -134,6 +359,14 @@ class ReservationWorkflowTest extends TestCase
 
         $this->actingAs($otherStudent)->get(route('reservations.show', $reservation))->assertForbidden();
         $this->actingAs($otherStudent)->delete(route('reservations.cancel', $reservation))->assertForbidden();
+        $this->actingAs($admin)->get(route('reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('data-confirm-message="Approve this reservation request?"', false)
+            ->assertSee('id="confirmation-modal"', false)
+            ->assertDontSee('onsubmit="return confirm(', false);
+        $this->actingAs($admin)->get(route('reservations.index'))
+            ->assertOk()
+            ->assertSee('data-confirm-message="Reject this reservation request?"', false);
         $this->actingAs($owner)->delete(route('reservations.cancel', $reservation))->assertRedirect(route('reservations.index'));
         $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'cancelled']);
 
@@ -147,10 +380,26 @@ class ReservationWorkflowTest extends TestCase
         $staff = $this->student(['role' => 'staff']);
 
         $this->actingAs($staff)->post('/facilities', [
-            'name' => 'Auditorium', 'location' => 'Main Campus', 'capacity' => 300, 'is_available' => 1,
+            'name' => 'Auditorium', 'location' => 'Main Campus', 'capacity' => 300,
+            'staff_in_charge' => 'Campus Facilities Desk', 'is_available' => 1,
         ])->assertRedirect('/facilities');
         $facility = Facility::sole();
-        $this->assertDatabaseHas('facilities', ['id' => $facility->id, 'name' => 'Auditorium']);
+        $this->assertDatabaseHas('facilities', [
+            'id' => $facility->id,
+            'name' => 'Auditorium',
+            'staff_in_charge' => 'Campus Facilities Desk',
+        ]);
+        $this->actingAs($staff)->post('/equipment', [
+            'name' => 'Portable Screen',
+            'staff_in_charge' => 'Media Services',
+            'quantity_available' => 2,
+            'is_available' => 1,
+        ])->assertRedirect('/equipment');
+        $this->assertDatabaseHas('equipment', [
+            'name' => 'Portable Screen',
+            'category' => null,
+            'staff_in_charge' => 'Media Services',
+        ]);
 
         $reservation = Reservation::create([
             'user_id' => $this->student()->id,
@@ -162,6 +411,14 @@ class ReservationWorkflowTest extends TestCase
             'description' => 'Student assembly.',
         ]);
         $this->actingAs($staff)->put(route('reservations.respond', $reservation), ['status' => 'approved'])->assertForbidden();
+
+        $superAdmin = $this->student(['role' => 'super_admin']);
+        $unusedFacility = Facility::create([
+            'name' => 'Unused Room', 'location' => 'Main Campus', 'capacity' => 20, 'is_available' => true,
+        ]);
+        $this->actingAs($superAdmin)->delete(route('facilities.destroy', $unusedFacility))
+            ->assertRedirect(route('facilities.index'));
+        $this->assertDatabaseMissing('facilities', ['id' => $unusedFacility->id]);
     }
 
     public function test_microsoft_sign_in_is_configurable_and_student_profiles_are_required(): void
@@ -180,6 +437,7 @@ class ReservationWorkflowTest extends TestCase
         $this->get('/auth/microsoft')->assertRedirect();
 
         $student = $this->student(['organization' => null, 'position' => null]);
+        Organization::create(['name' => 'Robotics Club']);
         $this->actingAs($student)->get('/dashboard')->assertRedirect(route('profile.edit'));
         $this->put(route('profile.update'), ['organization' => 'Robotics Club', 'position' => 'Treasurer'])
             ->assertRedirect(route('dashboard'));
@@ -323,6 +581,57 @@ class ReservationWorkflowTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $staff->id, 'name' => 'Campus Administrator', 'email' => 'admin@mcc.edu.ph', 'role' => 'admin']);
     }
 
+    public function test_super_admin_can_manage_organizations_and_students_choose_from_them(): void
+    {
+        $superAdmin = $this->student(['role' => 'super_admin']);
+        $student = $this->student(['organization' => null, 'position' => null]);
+
+        $this->actingAs($superAdmin)->post(route('organizations.store'), [
+            'organization_name' => 'Robotics Club',
+        ])->assertRedirect(route('accounts.index'));
+        $token = $superAdmin->createToken('organization-list')->plainTextToken;
+        $this->withToken($token)->getJson('/api/v1/organizations')
+            ->assertOk()
+            ->assertJsonPath('data.0.name', 'Robotics Club');
+
+        $this->actingAs($student)->get(route('profile.edit'))
+            ->assertOk()
+            ->assertSee('Robotics Club');
+        $this->actingAs($student)->put(route('profile.update'), [
+            'organization' => 'Robotics Club',
+            'position' => 'President',
+        ])->assertRedirect(route('dashboard'));
+
+        $organization = Organization::sole();
+        $this->actingAs($superAdmin)->delete(route('organizations.destroy', $organization))
+            ->assertRedirect(route('accounts.index'));
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'organization' => null]);
+        $this->withToken($token)->getJson('/api/v1/organizations')
+            ->assertOk()
+            ->assertJsonPath('data', []);
+    }
+
+    public function test_super_admin_can_suspend_reactivate_and_delete_non_super_admin_accounts(): void
+    {
+        $superAdmin = $this->student(['role' => 'super_admin']);
+        $student = $this->student(['organization' => 'Student Council', 'position' => 'President']);
+
+        $this->actingAs($superAdmin)->patch(route('accounts.suspension', $student), ['is_suspended' => 1])
+            ->assertRedirect(route('accounts.index'));
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'is_suspended' => true]);
+        $this->actingAs($student->fresh())->get('/dashboard')->assertRedirect(route('login'));
+        $this->actingAs($student->fresh())->getJson('/api/v1/me')->assertForbidden();
+
+        $this->actingAs($superAdmin)->patch(route('accounts.suspension', $student), ['is_suspended' => 0])
+            ->assertRedirect(route('accounts.index'));
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'is_suspended' => false]);
+
+        $this->actingAs($superAdmin)->delete(route('accounts.destroy', $student))
+            ->assertRedirect(route('accounts.index'));
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->actingAs($superAdmin)->delete(route('accounts.destroy', $superAdmin))->assertForbidden();
+    }
+
     public function test_flutter_can_exchange_a_single_use_code_and_call_the_json_api(): void
     {
         $student = $this->student();
@@ -348,14 +657,18 @@ class ReservationWorkflowTest extends TestCase
 
         $reservation = $this->withToken($token)->postJson('/api/v1/reservations', [
             'facility_id' => $facility->id,
-            'date' => now()->addDays(2)->toDateString(),
-            'start_time' => '13:00',
-            'end_time' => '14:00',
+            'duration_days' => 1,
+            'days' => [[
+                'date' => now()->addDays(2)->toDateString(),
+                'start_time' => '13:00',
+                'end_time' => '14:00',
+            ]],
             'pax' => 20,
             'purpose' => 'Mobile API rehearsal',
             'description' => 'Reservation submitted from Flutter.',
             'equipment' => [$equipment->id => 2],
         ])->assertCreated()->assertJsonPath('data.status', 'pending');
+        $reservation->assertJsonCount(1, 'data.schedules');
 
         $this->withToken($token)->getJson('/api/v1/reservations')->assertOk()->assertJsonPath('data.0.purpose', 'Mobile API rehearsal');
         $this->postJson('/api/v1/auth/exchange', ['code' => $code])->assertNotFound();

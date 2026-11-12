@@ -26,6 +26,7 @@ class User extends Authenticatable
         'role',
         'organization',
         'position',
+        'is_suspended',
     ];
 
     /**
@@ -48,6 +49,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_suspended' => 'boolean',
         ];
     }
 

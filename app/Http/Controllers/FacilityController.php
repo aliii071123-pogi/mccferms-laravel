@@ -10,7 +10,11 @@ class FacilityController extends Controller
 {
     public function index(Request $request)
     {
-        $facilities = Facility::with(['reservations' => fn ($query) => $query->whereIn('status', ['pending', 'approved'])->where('ends_at', '>=', now())->orderBy('starts_at')])->orderBy('name')->get();
+        $facilities = Facility::with(['reservations' => fn ($query) => $query
+            ->with('schedules')
+            ->whereIn('status', ['pending', 'approved'])
+            ->where('ends_at', '>=', now())
+            ->orderBy('starts_at')])->orderBy('name')->get();
         $editing = $request->filled('edit') ? Facility::findOrFail($request->query('edit')) : new Facility;
 
         return view('facilities.index', compact('facilities', 'editing'));
@@ -19,6 +23,7 @@ class FacilityController extends Controller
     public function apiIndex()
     {
         $facilities = Facility::with(['reservations' => fn ($query) => $query
+            ->with('schedules')
             ->whereIn('status', ['pending', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
@@ -29,12 +34,13 @@ class FacilityController extends Controller
             'location' => $facility->location,
             'description' => $facility->description,
             'capacity' => $facility->capacity,
+            'staff_in_charge' => $facility->staff_in_charge,
             'is_available' => $facility->is_available,
-            'schedule' => $facility->reservations->map(fn ($reservation) => [
-                'starts_at' => $reservation->starts_at->toISOString(),
-                'ends_at' => $reservation->ends_at->toISOString(),
+            'schedule' => $facility->reservations->flatMap(fn ($reservation) => $reservation->scheduleBlocks()->map(fn ($schedule) => [
+                'starts_at' => $schedule->starts_at->toISOString(),
+                'ends_at' => $schedule->ends_at->toISOString(),
                 'status' => $reservation->status,
-            ]),
+            ]))->values(),
         ])]);
     }
 
@@ -79,6 +85,7 @@ class FacilityController extends Controller
             'location' => ['required', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:2000'],
             'capacity' => ['required', 'integer', 'between:1,10000'],
+            'staff_in_charge' => ['required', 'string', 'max:160'],
             'is_available' => ['sometimes', 'boolean'],
         ]) + ['is_available' => $request->boolean('is_available')];
     }

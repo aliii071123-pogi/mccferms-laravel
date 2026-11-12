@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MobileAuthCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class MobileAuthController extends Controller
 {
@@ -22,6 +23,7 @@ class MobileAuthController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
             $authCode->update(['consumed_at' => now()]);
+            abort_if($authCode->user->is_suspended, 403, 'This account has been suspended.');
 
             $expiresAt = now()->addDays(config('ferms.api_token_days'));
             $token = $authCode->user->createToken('flutter-mobile', ['*'], $expiresAt);
@@ -45,7 +47,7 @@ class MobileAuthController extends Controller
     {
         abort_unless($request->user()->role === 'student', 403);
         $profile = $request->validate([
-            'organization' => ['required', 'string', 'max:160'],
+            'organization' => ['required', 'string', 'max:160', Rule::exists('organizations', 'name')],
             'position' => ['required', 'string', 'max:120'],
         ]);
         $request->user()->update($profile);

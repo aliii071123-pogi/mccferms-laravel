@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Equipment extends Model
 {
-    protected $fillable = ['name', 'category', 'description', 'quantity_available', 'is_available'];
+    protected $fillable = ['name', 'category', 'description', 'staff_in_charge', 'quantity_available', 'is_available'];
 
     protected function casts(): array
     {
