@@ -15,6 +15,11 @@ class ExampleTest extends TestCase
         $response = $this->get('/');
 
         $response->assertRedirect('/login');
-        $this->get('/login')->assertOk()->assertSee('MCC FERMS');
+        $this->get('/login')
+            ->assertOk()
+            ->assertSee('MCC FERMS')
+            ->assertSee('mcc-campus-background.jpg')
+            ->assertSee('login-content-enter', false)
+            ->assertSee('prefers-reduced-motion', false);
     }
 }

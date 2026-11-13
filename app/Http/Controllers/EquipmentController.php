@@ -12,7 +12,7 @@ class EquipmentController extends Controller
     {
         $equipment = Equipment::with(['reservations' => fn ($query) => $query
             ->with('schedules')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'recommended', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
         $categories = Equipment::query()
@@ -30,7 +30,7 @@ class EquipmentController extends Controller
     {
         $equipment = Equipment::with(['reservations' => fn ($query) => $query
             ->with('schedules')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'recommended', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
 
@@ -46,7 +46,7 @@ class EquipmentController extends Controller
                 'starts_at' => $schedule->starts_at->toISOString(),
                 'ends_at' => $schedule->ends_at->toISOString(),
                 'quantity' => $reservation->pivot->quantity,
-                'status' => $reservation->status,
+                'status' => $reservation->status === 'recommended' ? 'pending' : $reservation->status,
             ]))->values(),
         ])]);
     }

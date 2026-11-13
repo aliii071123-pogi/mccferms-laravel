@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('title', 'Request details')
 @section('content')
-<div class="page-head"><div><div class="eyebrow">Request #{{ str_pad((string) $reservation->id, 5, '0', STR_PAD_LEFT) }}</div><h1>{{ $reservation->purpose }}</h1><p>Submitted {{ $reservation->created_at->format('M j, Y') }} · <span class="status {{ $reservation->status }}">{{ $reservation->status }}</span></p></div><a class="button neutral" href="{{ route('reservations.index') }}">Back to reservations</a></div>
+<div class="page-head"><div><div class="eyebrow">Request #{{ str_pad((string) $reservation->id, 5, '0', STR_PAD_LEFT) }}</div><h1>{{ $reservation->purpose }}</h1><p>Submitted {{ $reservation->created_at->format('M j, Y') }} · <span class="status {{ $reservation->status }}">{{ $reservation->status_label }}</span></p></div><a class="button neutral" href="{{ route('reservations.index') }}">Back to reservations</a></div>
 <section class="surface" style="max-width:900px"><div class="form-grid">
     <div><div class="eyebrow">Facility</div><strong>{{ $reservation->facility?->name ?? 'No facility requested' }}</strong><div class="muted">{{ $reservation->facility?->location }}</div></div>
     <div><div class="eyebrow">Requested by</div><strong>{{ $reservation->user->name }}</strong><div class="muted">{{ $reservation->user->organization }} · {{ $reservation->user->position }}</div></div>
@@ -12,10 +12,14 @@
         @if($reservation->return_due_at)<p class="muted">Return by {{ $reservation->return_due_at->format('M j, Y g:i A') }} (within 2 days of the reservation).</p>@endif
     </div>
 </div>
-@if($reservation->reviewer)<p class="muted" style="margin-top:20px">{{ ucfirst($reservation->status) }} by {{ $reservation->reviewer->name }} on {{ $reservation->reviewed_at?->format('M j, Y g:i A') }}.</p>@endif
+@if(in_array($reservation->status, ['approved', 'rejected'], true) && $reservation->reviewed_at)<p class="decision-timestamp" role="status">{{ ucfirst($reservation->status) }} on {{ $reservation->reviewed_at->format('M j, Y g:i A') }}@if($reservation->reviewer) by {{ $reservation->reviewer->name }}@endif.</p>@endif
+@if($reservation->recommended_at)<p class="recommendation-note" role="status"><strong>Staff recommendation:</strong> Recommending approval, sent by {{ $reservation->recommender?->name ?? 'staff' }} on {{ $reservation->recommended_at->format('M j, Y g:i A') }}. The administrator makes the final decision.</p>@endif
 <div class="actions" style="margin-top:18px">
     @if($reservation->status === 'pending' && auth()->user()->role === 'student')<a class="button light" href="{{ route('reservations.edit', $reservation) }}">Edit request</a><form method="post" action="{{ route('reservations.cancel', $reservation) }}" data-confirm-message="Cancel this reservation request?" data-confirm-label="Cancel request">@csrf @method('DELETE')<button class="button neutral" type="submit">Cancel request</button></form>@endif
-    @if($reservation->status === 'pending' && in_array(auth()->user()->role, ['admin', 'super_admin'], true))
+    @if($reservation->status === 'pending' && auth()->user()->role === 'staff')
+        <form method="post" action="{{ route('reservations.recommend', $reservation) }}" data-confirm-message="Send your recommendation for approval to the administrators? They will make the final decision." data-confirm-label="Send recommendation">@csrf<button class="button light" type="submit">Recommend approval</button></form>
+    @endif
+    @if(in_array($reservation->status, ['pending', 'recommended'], true) && in_array(auth()->user()->role, ['admin', 'super_admin'], true))
         @foreach(['approved' => 'Approve', 'rejected' => 'Reject'] as $status => $label)<form method="post" action="{{ route('reservations.respond', $reservation) }}" data-confirm-message="{{ $label }} this reservation request?" data-confirm-label="{{ $label }}">@csrf @method('PUT')<input type="hidden" name="status" value="{{ $status }}"><button class="{{ $status === 'rejected' ? 'button neutral' : '' }}" type="submit">{{ $label }}</button></form>@endforeach
     @endif
 </div></section>

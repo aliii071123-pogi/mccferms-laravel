@@ -55,7 +55,7 @@ class CalendarController extends Controller
         $end = $month->copy()->endOfMonth()->endOfDay();
         $reservations = Reservation::with(['facility', 'schedules'])
             ->whereNotNull('facility_id')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'recommended', 'approved'])
             ->where('starts_at', '<=', $end)
             ->where('ends_at', '>=', $start)
             ->get();
@@ -66,7 +66,7 @@ class CalendarController extends Controller
                 'facility' => $reservation->facility->name,
                 'starts_at' => $schedule->starts_at,
                 'ends_at' => $schedule->ends_at,
-                'status' => $reservation->status,
+                'status' => $reservation->status === 'recommended' ? 'pending' : $reservation->status,
             ]))
             ->sortBy('starts_at')
             ->values();

@@ -12,7 +12,7 @@ class FacilityController extends Controller
     {
         $facilities = Facility::with(['reservations' => fn ($query) => $query
             ->with('schedules')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'recommended', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
         $editing = $request->filled('edit') ? Facility::findOrFail($request->query('edit')) : new Facility;
@@ -24,7 +24,7 @@ class FacilityController extends Controller
     {
         $facilities = Facility::with(['reservations' => fn ($query) => $query
             ->with('schedules')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'recommended', 'approved'])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')])->orderBy('name')->get();
 
@@ -39,7 +39,7 @@ class FacilityController extends Controller
             'schedule' => $facility->reservations->flatMap(fn ($reservation) => $reservation->scheduleBlocks()->map(fn ($schedule) => [
                 'starts_at' => $schedule->starts_at->toISOString(),
                 'ends_at' => $schedule->ends_at->toISOString(),
-                'status' => $reservation->status,
+                'status' => $reservation->status === 'recommended' ? 'pending' : $reservation->status,
             ]))->values(),
         ])]);
     }

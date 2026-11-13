@@ -59,10 +59,40 @@
         .theme-toggle{background:var(--hover);color:var(--ink);border:1px solid var(--line);padding:8px 11px;min-width:42px}
         .theme-toggle:hover{background:var(--red-soft);color:var(--red)}
         :focus-visible{outline:3px solid color-mix(in srgb,var(--red) 65%,transparent);outline-offset:2px}
+        :root{--ink:#172b45;--muted:#60748d;--line:#dbe5f0;--canvas:#f5f8fc;--red:#1e5aa8;--red-dark:#15447f;--red-soft:#eaf2ff;--table-head:#f1f6fc;--hover:#edf4fc;--shadow:0 12px 30px rgba(22,58,102,.07);--shadow-raised:0 18px 42px rgba(22,58,102,.14)}
+        :root[data-theme="dark"]{--ink:#e7f0fc;--muted:#a9bdd5;--line:#34465d;--paper:#1b2839;--canvas:#111c2a;--red:#77a9f6;--red-dark:#93bbff;--red-soft:#1e3453;--control:#1b2839;--table-head:#223249;--hover:#263950}
+        body{background-image:radial-gradient(ellipse at 75% -15%,rgba(30,90,168,.09),transparent 42%);background-color:var(--canvas)}
+        .status.recommended{background:var(--red-soft);color:var(--red)}
+        .recommendation-note{padding:13px 15px;border:1px solid color-mix(in srgb,var(--red) 22%,transparent);border-radius:9px;background:var(--red-soft);color:var(--ink)}
+        .recommendation-note strong{color:var(--red)}
+        .decision-timestamp{margin-top:20px;padding:12px 14px;border-radius:8px;background:var(--red-soft);color:var(--ink)}
+        body,.rail,.topbar,.surface,.stat,.catalog-item,.equipment-choice,.calendar-day,.calendar-weekday,.calendar-event,.field input,.field select,.field textarea,.button,button,.nav a,.status,.tabs a,.alert{transition:background-color .65s ease,color .65s ease,border-color .65s ease,box-shadow .65s ease}
+        html.theme-transition *,html.theme-transition *::before,html.theme-transition *::after{transition:background-color .65s ease,color .65s ease,border-color .65s ease,box-shadow .65s ease!important}
+        html.motion-ready .content>.page-head{animation:content-enter .5s cubic-bezier(.2,.7,.25,1) both}
+        html.motion-ready .content>.stats{animation:content-enter .55s .08s cubic-bezier(.2,.7,.25,1) both}
+        html.motion-ready .content>.grid-2,html.motion-ready .content>.surface{animation:content-enter .55s .14s cubic-bezier(.2,.7,.25,1) both}
+        html.motion-ready .content .stat{animation:content-enter .45s .14s cubic-bezier(.2,.7,.25,1) both}
+        html.motion-ready .content .surface img,html.motion-ready .content .catalog-item img{animation:media-enter .7s .12s cubic-bezier(.2,.7,.25,1) both}
+        @keyframes content-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes media-enter{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+        html.reveal-ready .content>.page-head[data-reveal],html.reveal-ready .content>.grid-2[data-reveal-stagger]{animation:none}
+        html.reveal-ready [data-reveal]{animation:none;opacity:0;transform:translateY(22px);transition:opacity .75s cubic-bezier(.2,.7,.25,1),transform .75s cubic-bezier(.2,.7,.25,1);transition-delay:var(--reveal-delay,0ms)}
+        html.reveal-ready [data-reveal].is-visible{opacity:1;transform:translateY(0)}
+        @media(prefers-reduced-motion:reduce){html.reveal-ready [data-reveal]{opacity:1;transform:none;transition:none}}
+        .page-loader[hidden]{display:none}
+        .page-loader{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:rgba(245,248,252,.86);backdrop-filter:blur(8px)}
+        :root[data-theme="dark"] .page-loader{background:rgba(17,28,42,.86)}
+        .page-loader-card{display:grid;place-items:center}
+        .loader-emblem{position:relative;width:70px;height:70px;display:grid;place-items:center;border-radius:18px;background:linear-gradient(145deg,#3479c9,#15447f);color:#fff;font:800 34px/1 Manrope,sans-serif;box-shadow:0 10px 24px rgba(30,90,168,.24);animation:loader-breathe 1.1s ease-in-out infinite}
+        .loader-emblem:before{content:"";position:absolute;inset:-8px;border:2px solid rgba(30,90,168,.22);border-top-color:#1e5aa8;border-radius:24px;animation:loader-spin .9s linear infinite}
+        .loader-emblem:after{content:"";position:absolute;inset:-15px;border:1px solid rgba(30,90,168,.12);border-bottom-color:rgba(30,90,168,.55);border-radius:29px;animation:loader-spin 1.5s linear infinite reverse}
+        @keyframes loader-spin{to{transform:rotate(360deg)}}
+        @keyframes loader-breathe{50%{transform:scale(.94);box-shadow:0 6px 16px rgba(30,90,168,.16)}}
         @media(max-width:620px){.topbar{height:auto;min-height:62px;padding:10px 14px;flex-wrap:wrap}.identity{margin-right:auto}.theme-toggle{padding:7px 9px}.surface{padding:17px}.equipment-filters{grid-template-columns:1fr}}
-        @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
+        @media(prefers-reduced-motion:reduce){*,*::before,*::after,html.theme-transition *,html.theme-transition *::before,html.theme-transition *::after{scroll-behavior:auto!important;transition:none!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
     </style>
     <script>
+        document.documentElement.classList.add('motion-ready');
         const savedTheme = localStorage.getItem('ferms-theme');
         document.documentElement.dataset.theme = savedTheme === 'dark' ? 'dark' : 'light';
     </script>
@@ -89,7 +119,7 @@
     <div class="workspace">
         <header class="topbar">
             <div class="identity">{{ auth()->user()->name }}<small>{{ auth()->user()->organization ?: auth()->user()->email }}</small></div>
-            <span class="role-pill">{{ str_replace('_', ' ', auth()->user()->role) }}</span>
+            <span class="role-pill">{{ auth()->user()->role === 'super_admin' ? 'IT Administrator' : str_replace('_', ' ', auth()->user()->role) }}</span>
             <button class="theme-toggle small" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false"><span id="theme-toggle-icon" aria-hidden="true">☾</span><span id="theme-toggle-label">Dark mode</span></button>
             <form method="post" action="{{ route('logout') }}">@csrf<button class="button neutral small" type="submit">Sign out</button></form>
         </header>
@@ -98,6 +128,9 @@
             @yield('content')
         </main>
     </div>
+</div>
+<div class="page-loader" id="page-loader" role="status" aria-live="polite" aria-label="Loading page" hidden>
+    <span class="loader-emblem" aria-hidden="true">M</span>
 </div>
 <div class="modal-backdrop confirmation-modal" id="confirmation-modal" role="presentation" hidden>
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message" tabindex="-1">
@@ -114,6 +147,7 @@
     const themeToggle = document.getElementById('theme-toggle');
     const themeToggleIcon = document.getElementById('theme-toggle-icon');
     const themeToggleLabel = document.getElementById('theme-toggle-label');
+    let themeTransitionTimeout;
 
     function updateThemeToggle() {
         const isDark = document.documentElement.dataset.theme === 'dark';
@@ -126,9 +160,14 @@
     updateThemeToggle();
     themeToggle.addEventListener('click', () => {
         const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.classList.add('theme-transition');
         document.documentElement.dataset.theme = theme;
         localStorage.setItem('ferms-theme', theme);
         updateThemeToggle();
+        window.clearTimeout(themeTransitionTimeout);
+        themeTransitionTimeout = window.setTimeout(() => {
+            document.documentElement.classList.remove('theme-transition');
+        }, 700);
     });
 
     const confirmationModal = document.getElementById('confirmation-modal');
@@ -186,6 +225,68 @@
         if (event.key === 'Escape' && !confirmationModal.hidden) {
             closeConfirmationModal();
         }
+    });
+</script>
+<script>
+    const revealElements = document.querySelectorAll('[data-reveal]');
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+        revealElements.forEach(element => element.classList.add('is-visible'));
+    } else {
+        document.documentElement.classList.add('reveal-ready');
+        const revealObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) {
+                    return;
+                }
+
+                entry.target.classList.add('is-visible');
+                revealObserver.unobserve(entry.target);
+            });
+        }, { threshold: 0.12 });
+
+        revealElements.forEach(element => revealObserver.observe(element));
+    }
+
+    const pageLoader = document.getElementById('page-loader');
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+
+        const link = event.target.closest('a[href]');
+        if (!(link instanceof HTMLAnchorElement)
+            || event.defaultPrevented
+            || event.button !== 0
+            || event.metaKey
+            || event.ctrlKey
+            || event.shiftKey
+            || event.altKey
+            || link.target
+            || link.hasAttribute('download')
+            || link.origin !== window.location.origin
+            || (link.pathname === window.location.pathname && link.search === window.location.search)) {
+            return;
+        }
+
+        pageLoader.hidden = false;
+        document.documentElement.setAttribute('aria-busy', 'true');
+    });
+
+    document.addEventListener('submit', event => {
+        if (event.defaultPrevented || !(event.target instanceof HTMLFormElement)) {
+            return;
+        }
+
+        pageLoader.hidden = false;
+        document.documentElement.setAttribute('aria-busy', 'true');
+    });
+
+    window.addEventListener('pageshow', () => {
+        pageLoader.hidden = true;
+        document.documentElement.removeAttribute('aria-busy');
     });
 </script>
 @stack('scripts')

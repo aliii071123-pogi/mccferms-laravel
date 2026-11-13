@@ -12,7 +12,7 @@ class Reservation extends Model
 {
     protected $fillable = [
         'user_id', 'facility_id', 'starts_at', 'ends_at', 'pax', 'purpose', 'description',
-        'status', 'reviewed_by', 'reviewed_at', 'return_due_at',
+        'status', 'reviewed_by', 'reviewed_at', 'recommended_by', 'recommended_at', 'return_due_at',
     ];
 
     protected function casts(): array
@@ -21,6 +21,7 @@ class Reservation extends Model
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
             'reviewed_at' => 'datetime',
+            'recommended_at' => 'datetime',
             'return_due_at' => 'datetime',
         ];
     }
@@ -38,6 +39,16 @@ class Reservation extends Model
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function recommender(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recommended_by');
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return $this->status === 'recommended' ? 'Recommending approval' : ucfirst($this->status);
     }
 
     public function equipment(): BelongsToMany

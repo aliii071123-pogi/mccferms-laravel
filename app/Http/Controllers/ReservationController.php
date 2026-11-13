@@ -13,13 +13,20 @@ use Illuminate\Validation\ValidationException;
 
 class ReservationController extends Controller
 {
-    private const BUSY_STATUSES = ['pending', 'approved'];
+    private const BUSY_STATUSES = ['pending', 'recommended', 'approved'];
 
     public function index(Request $request)
     {
         $user = $request->user();
         $history = $request->query('view') === 'history';
-        $query = Reservation::with(['user', 'facility', 'equipment', 'schedules']);
+        $query = Reservation::with([
+            'user',
+            'facility',
+            'equipment',
+            'schedules',
+            'reviewer:id,name',
+            'recommender:id,name',
+        ]);
 
         if ($user->role === 'student') {
             $query->where('user_id', $user->id);
@@ -68,7 +75,17 @@ class ReservationController extends Controller
         });
 
         if ($request->expectsJson()) {
-            return response()->json(['data' => $reservation->load(['facility', 'equipment', 'schedules']), 'message' => 'Request sent. Printed letters still need to be signed.'], 201);
+            return response()->json([
+                'data' => $reservation->load([
+                    'user',
+                    'facility',
+                    'equipment',
+                    'schedules',
+                    'reviewer:id,name',
+                    'recommender:id,name',
+                ]),
+                'message' => 'Request sent. Printed letters still need to be signed.',
+            ], 201);
         }
 
         return to_route('reservations.show', $reservation)
@@ -81,7 +98,14 @@ class ReservationController extends Controller
         $this->authorizeReservation($request, $reservation);
 
         if ($request->expectsJson()) {
-            return response()->json(['data' => $reservation->load(['user', 'facility', 'equipment', 'reviewer', 'schedules'])]);
+            return response()->json(['data' => $reservation->load([
+                'user',
+                'facility',
+                'equipment',
+                'reviewer:id,name',
+                'recommender:id,name',
+                'schedules',
+            ])]);
         }
 
         $reservation->load('schedules');
@@ -133,7 +157,14 @@ class ReservationController extends Controller
         });
 
         if ($request->expectsJson()) {
-            return response()->json(['data' => $reservation->fresh()->load(['facility', 'equipment', 'schedules'])]);
+            return response()->json(['data' => $reservation->fresh()->load([
+                'user',
+                'facility',
+                'equipment',
+                'schedules',
+                'reviewer:id,name',
+                'recommender:id,name',
+            ])]);
         }
 
         return to_route('reservations.show', $reservation)->with('success', 'Your request was updated.');
@@ -146,7 +177,14 @@ class ReservationController extends Controller
         $reservation->update(['status' => 'cancelled']);
 
         if ($request->expectsJson()) {
-            return response()->json(['data' => $reservation->fresh()]);
+            return response()->json(['data' => $reservation->fresh()->load([
+                'user',
+                'facility',
+                'equipment',
+                'schedules',
+                'reviewer:id,name',
+                'recommender:id,name',
+            ])]);
         }
 
         return to_route('reservations.index')->with('success', 'Your request was cancelled.');
@@ -155,18 +193,61 @@ class ReservationController extends Controller
     public function respond(Request $request, Reservation $reservation)
     {
         $data = $request->validate(['status' => ['required', 'in:approved,rejected']]);
-        abort_unless($reservation->status === 'pending', 409);
-        $reservation->update([
-            'status' => $data['status'],
-            'reviewed_by' => $request->user()->id,
-            'reviewed_at' => now(),
-        ]);
+        $reservation = DB::transaction(function () use ($request, $reservation, $data) {
+            $reservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless(in_array($reservation->status, ['pending', 'recommended'], true), 409);
+            $reservation->update([
+                'status' => $data['status'],
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+
+            return $reservation->fresh();
+        });
 
         if ($request->expectsJson()) {
-            return response()->json(['data' => $reservation->fresh()]);
+            return response()->json(['data' => $reservation->load([
+                'user',
+                'facility',
+                'equipment',
+                'schedules',
+                'reviewer:id,name',
+                'recommender:id,name',
+            ])]);
         }
 
         return to_route('reservations.index')->with('success', 'Request '.($data['status'] === 'approved' ? 'approved' : 'rejected').'.');
+    }
+
+    public function recommend(Request $request, Reservation $reservation)
+    {
+        $reservation = DB::transaction(function () use ($request, $reservation) {
+            $reservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            abort_unless($reservation->status === 'pending', 409);
+            $reservation->update([
+                'status' => 'recommended',
+                'recommended_by' => $request->user()->id,
+                'recommended_at' => now(),
+            ]);
+
+            return $reservation->fresh();
+        });
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'data' => $reservation->load([
+                    'user',
+                    'facility',
+                    'equipment',
+                    'schedules',
+                    'reviewer:id,name',
+                    'recommender:id,name',
+                ]),
+                'message' => 'Staff recommends approval. An administrator must make the final decision.',
+            ]);
+        }
+
+        return to_route('reservations.index')->with('success', 'Your recommendation was sent to administrators for review.');
     }
 
     public function destroy(Request $request, Reservation $reservation)

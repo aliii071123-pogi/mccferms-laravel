@@ -23,13 +23,16 @@ Route::prefix('v1')->group(function () {
         Route::get('/equipment', [EquipmentController::class, 'apiIndex'])->name('api.equipment.index');
         Route::get('/organizations', [OrganizationController::class, 'apiIndex'])->name('api.organizations.index');
         Route::get('/calendar', [CalendarController::class, 'apiIndex'])->name('api.calendar.index');
-
         Route::middleware('student.profile')->group(function () {
             Route::get('/reservations', [ReservationController::class, 'index'])->name('api.reservations.index');
             Route::post('/reservations', [ReservationController::class, 'store'])->name('api.reservations.store');
             Route::get('/reservations/{reservation}', [ReservationController::class, 'show'])->name('api.reservations.show');
             Route::put('/reservations/{reservation}', [ReservationController::class, 'update'])->name('api.reservations.update');
             Route::delete('/reservations/{reservation}/cancel', [ReservationController::class, 'cancel'])->name('api.reservations.cancel');
+        });
+
+        Route::middleware('role:staff')->group(function () {
+            Route::post('/reservations/{reservation}/recommend', [ReservationController::class, 'recommend'])->name('api.reservations.recommend');
         });
 
         Route::middleware('role:admin,super_admin')->group(function () {

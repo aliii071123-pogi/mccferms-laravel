@@ -6,19 +6,24 @@ use App\Models\MobileAuthCode;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class AccountController extends Controller
 {
+    private const MAX_IT_ADMINISTRATORS = 3;
+
     public function index()
     {
         $users = User::whereIn('role', ['staff', 'admin', 'super_admin'])->orderBy('role')->orderBy('name')->get();
         $students = User::where('role', 'student')->orderBy('name')->get();
         $organizations = Organization::orderBy('name')->get();
+        $itAdministratorCount = User::where('role', 'super_admin')->count();
 
-        return view('accounts.index', compact('users', 'students', 'organizations'));
+        return view('accounts.index', compact('users', 'students', 'organizations', 'itAdministratorCount'));
     }
 
     public function store(Request $request)
@@ -26,16 +31,37 @@ class AccountController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'ends_with:@mcc.edu.ph', 'max:255', 'unique:users,email'],
-            'role' => ['required', Rule::in(['staff', 'admin'])],
+            'role' => ['required', Rule::in(['staff', 'admin', 'super_admin'])],
         ]);
-        User::create([...$data, 'password' => Str::random(64)]);
+        $attributes = [...$data, 'password' => Str::random(64)];
 
-        return to_route('accounts.index')->with('success', 'MCC account added. They can now sign in with Microsoft.');
+        if ($data['role'] === 'super_admin') {
+            DB::transaction(function () use ($attributes): void {
+                User::where('role', 'super_admin')->orderBy('id')->lockForUpdate()->firstOrFail();
+
+                if (User::where('role', 'super_admin')->count() >= self::MAX_IT_ADMINISTRATORS) {
+                    throw ValidationException::withMessages([
+                        'role' => 'A maximum of three IT Administrators is allowed.',
+                    ]);
+                }
+
+                User::create($attributes);
+            });
+        } else {
+            User::create($attributes);
+        }
+
+        return to_route('accounts.index')->with(
+            'success',
+            $data['role'] === 'super_admin'
+                ? 'IT Administrator account added. They can now sign in with Microsoft.'
+                : 'MCC account added. They can now sign in with Microsoft.',
+        );
     }
 
     public function update(Request $request, User $user)
     {
-        abort_if($user->role === 'super_admin' && $user->is($request->user()), 403);
+        abort_unless($user->role !== 'super_admin' && ! $user->is($request->user()), 403);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'ends_with:@mcc.edu.ph', 'max:255', Rule::unique('users')->ignore($user)],

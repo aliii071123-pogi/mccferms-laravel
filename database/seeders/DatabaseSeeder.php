@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
         if ($email && str_ends_with($email, '@mcc.edu.ph')) {
             User::updateOrCreate(
                 ['email' => $email],
-                ['name' => 'FERMS Super Administrator', 'password' => Str::random(64), 'role' => 'super_admin'],
+                ['name' => 'FERMS IT Administrator', 'password' => Str::random(64), 'role' => 'super_admin'],
             );
         }
     }

@@ -22,8 +22,8 @@ class DashboardController extends Controller
             'equipment' => Equipment::where('is_available', true)->orderBy('name')->get(),
             'upcoming' => (clone $reservations)->where('ends_at', '>=', now())->orderBy('starts_at')->limit(6)->get(),
             'pendingCount' => $user->role === 'student'
-                ? (clone $reservations)->where('status', 'pending')->count()
-                : Reservation::where('status', 'pending')->count(),
+                ? (clone $reservations)->whereIn('status', ['pending', 'recommended'])->count()
+                : Reservation::whereIn('status', ['pending', 'recommended'])->count(),
             'activeCount' => (clone $reservations)->where('status', 'approved')->where('ends_at', '>=', now())->count(),
         ]);
     }
@@ -38,8 +38,8 @@ class DashboardController extends Controller
 
         return response()->json(['data' => [
             'pending_requests' => $user->role === 'student'
-                ? (clone $reservations)->where('status', 'pending')->count()
-                : Reservation::where('status', 'pending')->count(),
+                ? (clone $reservations)->whereIn('status', ['pending', 'recommended'])->count()
+                : Reservation::whereIn('status', ['pending', 'recommended'])->count(),
             'approved_upcoming' => (clone $reservations)->where('status', 'approved')->where('ends_at', '>=', now())->count(),
             'facilities_available' => Facility::where('is_available', true)->count(),
             'equipment_types_available' => Equipment::where('is_available', true)->count(),

@@ -18,7 +18,7 @@
                         <div class="calendar-event">
                             <strong>{{ $event['facility'] }}</strong>
                             <span>{{ $event['starts_at']->format('g:i A') }}–{{ $event['ends_at']->format('g:i A') }}</span>
-                            <small class="status {{ $event['status'] }}">{{ $event['status'] === 'pending' ? 'Pending' : 'Booked' }}</small>
+                            <small class="status {{ $event['status'] }}">{{ $event['status'] === 'recommended' ? 'Recommended' : ($event['status'] === 'pending' ? 'Pending' : 'Booked') }}</small>
                         </div>
                     @endforeach
                 </section>

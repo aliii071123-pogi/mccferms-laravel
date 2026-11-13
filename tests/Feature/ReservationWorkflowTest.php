@@ -9,6 +9,7 @@ use App\Models\Organization;
 use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Laravel\Socialite\Facades\Socialite;
 use Tests\TestCase;
 
@@ -59,12 +60,19 @@ class ReservationWorkflowTest extends TestCase
         $student = $this->student();
         $facility = Facility::create(['name' => 'Innovation Hall', 'location' => 'North Wing', 'capacity' => 40]);
         $equipment = Equipment::create(['name' => 'Projector', 'category' => 'AV', 'quantity_available' => 4]);
-        $this->actingAs($student)->get('/dashboard')
+        $response = $this->actingAs($student)->get('/dashboard')
             ->assertOk()
             ->assertSee('Innovation Hall')
             ->assertSee('id="theme-toggle"', false)
             ->assertSee('Switch to dark mode')
-            ->assertSee("localStorage.setItem('ferms-theme', theme)", false);
+            ->assertSee("localStorage.setItem('ferms-theme', theme)", false)
+            ->assertSee('id="page-loader"', false)
+            ->assertSee('loader-emblem', false)
+            ->assertDontSee('Loading your workspace')
+            ->assertSee('data-reveal', false)
+            ->assertSee('IntersectionObserver', false)
+            ->assertSee('prefers-reduced-motion: reduce');
+        $this->assertStringContainsString('background-color .65s ease', $response->getContent());
 
         $response = $this->actingAs($student)->post('/reservations', $this->requestData($facility, $equipment));
         $reservation = Reservation::sole();
@@ -375,6 +383,61 @@ class ReservationWorkflowTest extends TestCase
         $this->assertDatabaseHas('reservations', ['id' => $reservation->id, 'status' => 'approved', 'reviewed_by' => $admin->id]);
     }
 
+    public function test_reservation_decision_times_are_visible_to_users_who_can_view_the_request(): void
+    {
+        $owner = $this->student();
+        $otherStudent = $this->student();
+        $admin = $this->student(['role' => 'admin']);
+        $staff = $this->student(['role' => 'staff']);
+        $approvedAt = now()->subMinutes(20);
+        $rejectedAt = now()->subMinutes(10);
+        $approved = Reservation::create([
+            'user_id' => $owner->id,
+            'starts_at' => now()->addDays(3)->setTime(10, 0),
+            'ends_at' => now()->addDays(3)->setTime(11, 0),
+            'purpose' => 'Approved student event',
+            'description' => 'Approved event description.',
+            'status' => 'approved',
+            'reviewed_by' => $admin->id,
+            'reviewed_at' => $approvedAt,
+        ]);
+        $rejected = Reservation::create([
+            'user_id' => $owner->id,
+            'starts_at' => now()->addDays(4)->setTime(10, 0),
+            'ends_at' => now()->addDays(4)->setTime(11, 0),
+            'purpose' => 'Rejected student event',
+            'description' => 'Rejected event description.',
+            'status' => 'rejected',
+            'reviewed_by' => $admin->id,
+            'reviewed_at' => $rejectedAt,
+        ]);
+
+        $this->actingAs($owner)->get(route('reservations.index'))
+            ->assertOk()
+            ->assertSee('Approved on '.$approvedAt->format('M j, Y g:i A'));
+        $this->actingAs($owner)->get(route('reservations.index', ['view' => 'history']))
+            ->assertOk()
+            ->assertSee('Rejected on '.$rejectedAt->format('M j, Y g:i A'));
+        $this->actingAs($owner)->get(route('reservations.show', $approved))
+            ->assertOk()
+            ->assertSee('Approved on '.$approvedAt->format('M j, Y g:i A'));
+        $this->actingAs($owner)->get(route('reservations.show', $rejected))
+            ->assertOk()
+            ->assertSee('Rejected on '.$rejectedAt->format('M j, Y g:i A'));
+
+        $this->actingAs($otherStudent)->get(route('reservations.index'))
+            ->assertOk()
+            ->assertDontSee('Approved student event')
+            ->assertDontSee('Rejected student event');
+        $this->actingAs($otherStudent)->get(route('reservations.show', $approved))->assertForbidden();
+        $this->actingAs($admin)->get(route('reservations.index'))
+            ->assertOk()
+            ->assertSee('Approved on '.$approvedAt->format('M j, Y g:i A'));
+        $this->actingAs($staff)->get(route('reservations.show', $rejected))
+            ->assertOk()
+            ->assertSee('Rejected on '.$rejectedAt->format('M j, Y g:i A'));
+    }
+
     public function test_staff_can_manage_inventory_but_cannot_approve_requests(): void
     {
         $staff = $this->student(['role' => 'staff']);
@@ -419,6 +482,67 @@ class ReservationWorkflowTest extends TestCase
         $this->actingAs($superAdmin)->delete(route('facilities.destroy', $unusedFacility))
             ->assertRedirect(route('facilities.index'));
         $this->assertDatabaseMissing('facilities', ['id' => $unusedFacility->id]);
+    }
+
+    public function test_staff_can_recommend_approval_for_admin_review(): void
+    {
+        $staff = $this->student(['role' => 'staff']);
+        $admin = $this->student(['role' => 'admin']);
+        $student = $this->student();
+        $facility = Facility::create(['name' => 'Arts Hall', 'location' => 'Main Campus', 'capacity' => 80]);
+        $reservation = Reservation::create([
+            'user_id' => $student->id,
+            'facility_id' => $facility->id,
+            'starts_at' => now()->addDays(3)->setTime(10, 0),
+            'ends_at' => now()->addDays(3)->setTime(11, 0),
+            'pax' => 40,
+            'purpose' => 'Campus exhibit',
+            'description' => 'Student art exhibit.',
+        ]);
+
+        $this->actingAs($staff)->get(route('reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('Recommend approval');
+        $this->actingAs($admin)->post(route('reservations.recommend', $reservation))->assertForbidden();
+        $this->actingAs($student)->post(route('reservations.recommend', $reservation))->assertForbidden();
+
+        $this->actingAs($staff)->post(route('reservations.recommend', $reservation))
+            ->assertRedirect(route('reservations.index'))
+            ->assertSessionHas('success', 'Your recommendation was sent to administrators for review.');
+        $reservation->refresh();
+        $this->assertSame('recommended', $reservation->status);
+        $this->assertSame($staff->id, $reservation->recommended_by);
+        $this->assertNotNull($reservation->recommended_at);
+
+        $this->actingAs($admin)->get(route('reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('Recommending approval')
+            ->assertSee($staff->name)
+            ->assertSee('Approve');
+        $this->actingAs($admin)->put(route('reservations.respond', $reservation), ['status' => 'approved'])
+            ->assertRedirect(route('reservations.index'));
+        $this->assertDatabaseHas('reservations', [
+            'id' => $reservation->id,
+            'status' => 'approved',
+            'reviewed_by' => $admin->id,
+            'recommended_by' => $staff->id,
+        ]);
+
+        $reservation->update(['status' => 'recommended']);
+        $secondRequest = $this->requestData($facility, Equipment::create([
+            'name' => 'Display Monitor',
+            'category' => 'AV',
+            'quantity_available' => 3,
+        ]), [
+            'days' => [[
+                'date' => $reservation->starts_at->toDateString(),
+                'start_time' => '10:00',
+                'end_time' => '11:00',
+            ]],
+        ]);
+        $this->actingAs($this->student())->from('/reservations/create')
+            ->post('/reservations', $secondRequest)
+            ->assertSessionHasErrors(['facility_conflict']);
     }
 
     public function test_microsoft_sign_in_is_configurable_and_student_profiles_are_required(): void
@@ -559,6 +683,136 @@ class ReservationWorkflowTest extends TestCase
         }
     }
 
+    public function test_mobile_staff_recommendation_api_preserves_audit_data_and_student_privacy(): void
+    {
+        $staff = $this->student(['role' => 'staff']);
+        $admin = $this->student(['role' => 'admin']);
+        $student = $this->student();
+        $otherStudent = $this->student();
+        $facility = Facility::create(['name' => 'Mobile Arts Hall', 'location' => 'Main Campus', 'capacity' => 80]);
+        $reservation = Reservation::create([
+            'user_id' => $student->id,
+            'facility_id' => $facility->id,
+            'starts_at' => now()->addDays(3)->setTime(10, 0),
+            'ends_at' => now()->addDays(3)->setTime(11, 0),
+            'pax' => 40,
+            'purpose' => 'Mobile exhibit',
+            'description' => 'Reservation submitted from Flutter.',
+        ]);
+        $this->postJson('/api/v1/reservations/'.$reservation->id.'/recommend')->assertUnauthorized();
+        Sanctum::actingAs($admin);
+        $this->postJson('/api/v1/reservations/'.$reservation->id.'/recommend')->assertForbidden();
+        Sanctum::actingAs($student);
+        $this->postJson('/api/v1/reservations/'.$reservation->id.'/recommend')->assertForbidden();
+
+        Sanctum::actingAs($staff);
+        $recommendation = $this->postJson('/api/v1/reservations/'.$reservation->id.'/recommend', ['status' => 'approved'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'recommended')
+            ->assertJsonPath('data.recommended_by', $staff->id)
+            ->assertJsonPath('data.recommender.id', $staff->id)
+            ->assertJsonPath('data.recommender.name', $staff->name);
+        $this->assertNotNull($recommendation->json('data.recommended_at'));
+        $this->assertNull($recommendation->json('data.reviewed_at'));
+        $this->postJson('/api/v1/reservations/'.$reservation->id.'/recommend')->assertStatus(409);
+
+        Sanctum::actingAs($student);
+        $this->getJson('/api/v1/reservations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.status', 'recommended')
+            ->assertJsonPath('data.0.recommended_by', $staff->id)
+            ->assertJsonPath('data.0.recommender.name', $staff->name);
+        Sanctum::actingAs($otherStudent);
+        $this->getJson('/api/v1/reservations')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/reservations/'.$reservation->id)->assertForbidden();
+        Sanctum::actingAs($student);
+        $this->getJson('/api/v1/reservations/'.$reservation->id)
+            ->assertOk()
+            ->assertJsonPath('data.recommender.name', $staff->name)
+            ->assertJsonPath('data.reviewer', null);
+
+        Sanctum::actingAs($staff);
+        $this->putJson('/api/v1/reservations/'.$reservation->id.'/decision', ['status' => 'approved'])
+            ->assertForbidden();
+        Sanctum::actingAs($admin);
+        $decision = $this->putJson('/api/v1/reservations/'.$reservation->id.'/decision', ['status' => 'approved'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.reviewed_by', $admin->id)
+            ->assertJsonPath('data.reviewer.name', $admin->name)
+            ->assertJsonPath('data.recommender.name', $staff->name);
+        $this->assertNotNull($decision->json('data.reviewed_at'));
+    }
+
+    public function test_recommended_reservations_remain_busy_and_calendar_status_is_generic(): void
+    {
+        $student = $this->student();
+        $facility = Facility::create(['name' => 'Reserved Hall', 'location' => 'Main Campus', 'capacity' => 60]);
+        $equipment = Equipment::create(['name' => 'Reserved Projector', 'category' => 'AV', 'quantity_available' => 2]);
+        $startsAt = now()->addDays(4)->setTime(10, 0);
+        $reservation = Reservation::create([
+            'user_id' => $this->student(['role' => 'staff'])->id,
+            'facility_id' => $facility->id,
+            'starts_at' => $startsAt,
+            'ends_at' => $startsAt->copy()->addHour(),
+            'pax' => 20,
+            'purpose' => 'Private reservation detail',
+            'description' => 'This must not appear in availability endpoints.',
+            'status' => 'recommended',
+        ]);
+        $reservation->equipment()->attach($equipment->id, ['quantity' => 2]);
+
+        $token = $student->createToken('availability')->plainTextToken;
+        $month = $startsAt->format('Y-m');
+        $this->withToken($token)->getJson('/api/v1/calendar?month='.$month)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.status', 'pending')
+            ->assertJsonMissingPath('data.0.requester')
+            ->assertJsonMissingPath('data.0.purpose');
+        $calendarEntry = $this->withToken($student->createToken('calendar-shape')->plainTextToken)
+            ->getJson('/api/v1/calendar?month='.$month)->json('data.0');
+        $this->assertSame(['facility', 'starts_at', 'ends_at', 'status'], array_keys($calendarEntry));
+
+        $this->withToken($student->createToken('facility-schedule')->plainTextToken)
+            ->getJson('/api/v1/facilities')
+            ->assertOk()
+            ->assertJsonPath('data.0.schedule.0.status', 'pending');
+        $this->withToken($student->createToken('equipment-schedule')->plainTextToken)
+            ->getJson('/api/v1/equipment')
+            ->assertOk()
+            ->assertJsonPath('data.0.schedule.0.status', 'pending')
+            ->assertDontSee('Private reservation detail');
+
+        $facilityConflict = $this->requestData($facility, $equipment, [
+            'days' => [[
+                'date' => $startsAt->toDateString(),
+                'start_time' => '10:00',
+                'end_time' => '11:00',
+            ]],
+            'equipment' => [],
+        ]);
+        $this->withToken($token)->postJson('/api/v1/reservations', $facilityConflict)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('facility_conflict');
+
+        $equipmentConflict = $this->requestData($facility, $equipment, [
+            'facility_id' => null,
+            'days' => [[
+                'date' => $startsAt->toDateString(),
+                'start_time' => '10:00',
+                'end_time' => '11:00',
+            ]],
+            'equipment' => [$equipment->id => 1],
+        ]);
+        $this->withToken($token)->postJson('/api/v1/reservations', $equipmentConflict)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('equipment.'.$equipment->id);
+    }
+
     public function test_super_admin_can_provision_and_edit_mcc_accounts(): void
     {
         $superAdmin = $this->student(['role' => 'super_admin']);
@@ -579,6 +833,38 @@ class ReservationWorkflowTest extends TestCase
             'position' => null,
         ])->assertRedirect('/accounts');
         $this->assertDatabaseHas('users', ['id' => $staff->id, 'name' => 'Campus Administrator', 'email' => 'admin@mcc.edu.ph', 'role' => 'admin']);
+    }
+
+    public function test_it_administrator_can_create_other_it_administrators_up_to_three(): void
+    {
+        $itAdministrator = $this->student(['role' => 'super_admin']);
+        $this->actingAs($itAdministrator)->get(route('accounts.index'))
+            ->assertOk()
+            ->assertSee('IT Administrator accounts: 1 of 3')
+            ->assertSee('IT Administrator');
+
+        $this->actingAs($this->student(['role' => 'admin']))->post(route('accounts.store'), [
+            'name' => 'Not Authorized',
+            'email' => 'not-authorized@mcc.edu.ph',
+            'role' => 'super_admin',
+        ])->assertForbidden();
+
+        foreach ([2, 3] as $number) {
+            $this->actingAs($itAdministrator)->post(route('accounts.store'), [
+                'name' => 'IT Administrator '.$number,
+                'email' => 'it-admin-'.$number.'@mcc.edu.ph',
+                'role' => 'super_admin',
+            ])->assertRedirect(route('accounts.index'));
+        }
+
+        $this->actingAs($itAdministrator)->post(route('accounts.store'), [
+            'name' => 'Fourth IT Administrator',
+            'email' => 'it-admin-4@mcc.edu.ph',
+            'role' => 'super_admin',
+        ])->assertSessionHasErrors('role');
+
+        $this->assertSame(3, User::where('role', 'super_admin')->count());
+        $this->assertDatabaseMissing('users', ['email' => 'it-admin-4@mcc.edu.ph']);
     }
 
     public function test_super_admin_can_manage_organizations_and_students_choose_from_them(): void
